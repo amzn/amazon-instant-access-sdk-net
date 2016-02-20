@@ -1,0 +1,4 @@
+source https://www.nuget.org/api/v2
+nuget Microsoft.AspNet.WebApi 5.2.3 framework: >= net452
+nuget Microsoft.CodeDom.Providers.DotNetCompilerPlatform 1.0.1 framework: >= net452
+nuget Moq
