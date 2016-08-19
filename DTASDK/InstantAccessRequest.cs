@@ -54,6 +54,10 @@ namespace Amazon.DTASDK.V2
         public string ProductId { get; set; }
 
         public string UserId { get; set; }
+
+        public int NumberOfSubscriptionsInGroup { get; set; }
+
+        public string SubscriptionGroupId { get; set; }
     }
 
     public enum SubscriptionReason

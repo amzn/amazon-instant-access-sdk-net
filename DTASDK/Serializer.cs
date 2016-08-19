@@ -17,7 +17,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 
-namespace DTASDKWeb
+namespace Amazon.DTASDK.V2
 {
     /// <summary>
     /// Serializes and deserializes json AIA requests and responses.
@@ -35,6 +35,11 @@ namespace DTASDKWeb
         public T Deserialize<T>(string json)
         {
             return JsonConvert.DeserializeObject<T>(json, SerializerSettings);
+        }
+
+        public string Serialize(object obj)
+        {
+            return JsonConvert.SerializeObject(obj);
         }
     }
 }

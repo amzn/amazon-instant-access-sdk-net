@@ -18,6 +18,7 @@ using System.Net;
 using System.IO;
 using Moq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Amazon.DTASDK.V2;
 
 namespace Amazon.DTASDK.V2.Tests
 {
@@ -159,6 +160,49 @@ namespace Amazon.DTASDK.V2.Tests
             Assert.AreEqual(Request.Method.Get, request.RequestMethod);
             Assert.AreEqual("http://amazon.com:8888/servlet?param=value&param2=value2", request.Url);
             Assert.AreEqual("body", request.Body);
+        }
+
+        [TestMethod]
+        public void testSerializeSBS2Request()
+        {
+            string SBS2JsonRequestBody = @"{""operation""SubscriptionActivate"",
+                                            ""subscriptionId"":""6f3092e5-0326-42b7-a107-416234d548d8"",
+                                            ""productId"": ""subscriptionA"",
+                                            ""userId"": ""12345""}";
+
+            Serializer serializer = new Serializer();
+
+            SubscriptionActivateRequest request = serializer.Deserialize<SubscriptionActivateRequest>(SBS2JsonRequestBody);
+            Assert.AreEqual("SubscriptionActivate", request.Operation);
+            Assert.AreEqual("6f3092e5-0326-42b7-a107-416234d548d8", request.SubscriptionId);
+            Assert.AreEqual("subscriptionA", request.ProductId);
+            Assert.AreEqual("12345", request.UserId);
+            Assert.AreEqual(0, request.NumberOfSubscriptionsInGroup);
+            Assert.AreEqual(null, request.SubscriptionGroupId);
+
+        }
+
+        [TestMethod]
+        public void testSerializeTeamSubsRequest()
+        {
+            string SBS2JsonRequestBody = @"{""operation""SubscriptionActivate"",
+                                            ""subscriptionId"":""6f3092e5-0326-42b7-a107-416234d548d8"",
+                                            ""productId"": ""subscriptionA"",
+                                            ""userId"": ""12345"",
+                                            ""numberOfSubscriptionsInGroup"": 3,
+                                            ""subscriptionGroupId"": ""868a2dd8-64ce-11e6-874a-5065f33e6360""
+                                            }";
+
+            Serializer serializer = new Serializer();
+
+            SubscriptionActivateRequest request = serializer.Deserialize<SubscriptionActivateRequest>(SBS2JsonRequestBody);
+            Assert.AreEqual("SubscriptionActivate", request.Operation);
+            Assert.AreEqual("6f3092e5-0326-42b7-a107-416234d548d8", request.SubscriptionId);
+            Assert.AreEqual("subscriptionA", request.ProductId);
+            Assert.AreEqual("12345", request.UserId);
+            Assert.AreEqual(3, request.NumberOfSubscriptionsInGroup);
+            Assert.AreEqual("868a2dd8-64ce-11e6-874a-5065f33e6360", request.SubscriptionGroupId);
+
         }
     }
 }
