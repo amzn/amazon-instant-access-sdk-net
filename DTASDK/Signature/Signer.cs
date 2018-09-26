@@ -1,5 +1,5 @@
-﻿/*
- * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+/*
+ * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -13,13 +13,18 @@
  * permissions and limitations under the License.
  */
 
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.Primitives;
+
+using static System.Text.Encoding;
+
 namespace Amazon.DTASDK.V2.Signature
 {
-    using System;
-    using System.Globalization;
-    using System.Linq;
-    using System.Text;
-    using System.Security.Cryptography;
 
     /// <summary>
     /// The class which verifies and signs authentication requests.
@@ -29,19 +34,18 @@ namespace Amazon.DTASDK.V2.Signature
         private const string AlgorithmHeader = "DTA1-HMAC-SHA256";
         private const string XAmzDateHeader = "x-amz-date";
         private const string AuthorizationHeader = "Authorization";
-        // Specified by the AWSAuthv4 to be a +/- 15 minute window, expressed in milliseconds, that we allow. We *can* tighten this up.
+        // Specified by the AWSAuthv4 to be a +/- 15 minute window, expressed in milliseconds,
+        // that we allow. We *can* tighten this up.
         private const int TimeToleranceInMilliseconds = 15 * 1000 * 60;
         private const string HmacAlgorithm = "HmacSHA256";
-        /** The default encoding to use when URL encoding */
-        private const string DateTimeFormat = "yyyyMMdd'T'HHmmss'Z'";
-        private const string DateStampFormat = "yyyyMMdd";
-        private const string EmptyScope = "";
+        private const string ISO8601Date = "yyyyMMdd";
+        private const string ISO8601DateTime = "yyyyMMddTHHmmssZ";
         private const string SignedHeadersString = "SignedHeaders=";
         private const string CredentialsString = "Credential=";
         private const string SignatureString = "Signature=";
 
-        private AuthenticationHeaderParser AuthenticationHeaderParser { get; }
-        private Clock Clock { get; }
+        private readonly AuthenticationHeaderParser authenticationHeaderParser;
+        private readonly Clock clock;
 
         /// <summary>
         /// Creates a complete Signer ready to be used.
@@ -59,8 +63,8 @@ namespace Amazon.DTASDK.V2.Signature
         /// </param>
         public Signer(AuthenticationHeaderParser authenticationHeaderParser, Clock clock)
         {
-            AuthenticationHeaderParser = authenticationHeaderParser;
-            Clock = clock;
+            this.authenticationHeaderParser = authenticationHeaderParser;
+            this.clock = clock;
         }
 
         /// <summary>
@@ -75,7 +79,7 @@ namespace Amazon.DTASDK.V2.Signature
         /// <returns>
         /// true if the request validates. false for any other reason except a SigningException.
         /// </returns>
-        public bool Verify(Request request, Credential credential)
+        public bool Verify(IDTARequest request, Credential credential)
         {
             CredentialStore store = new CredentialStore();
             store.Add(credential);
@@ -86,103 +90,125 @@ namespace Amazon.DTASDK.V2.Signature
         /// Verifies the request against a credential store.
         /// </summary>
         /// <param name="request">
-        /// the request to verify.
+        /// The request to verify.
         /// </param>
         /// <param name="credentialStore">
-        /// the credential store used to verify the request.
+        /// The credential store used to verify the request.
         /// </param>
         /// <returns>
         /// true if the request validates. false for any other reason except a SigningException.
         /// </returns>
-        public bool Verify(Request request, CredentialStore credentialStore)
+        public bool Verify(IDTARequest request, CredentialStore credentialStore)
         {
-            DateTime now = Clock.Now();
-            string strDate = now.ToString(DateStampFormat);
-            string dateTime = request.GetHeader(XAmzDateHeader);
-
-            if (dateTime == null)
+            if (!TryGetRequestDate(request.Headers,
+                    out DateTime amznAuthDateTime))
             {
                 return false;
             }
 
-            // Fail if the Authentication header is not found
-            string actualAuthorization = request.GetHeader(AuthorizationHeader);
-            if (string.IsNullOrEmpty(actualAuthorization))
+            if (!request.Headers.TryGetValue(AuthorizationHeader,
+                    out var requestAuthorization))
             {
                 return false;
             }
 
-            request.RemoveHeader(AuthorizationHeader);
-
-            // Clear any header that isn't in the list of signed signedHeaders
-            AuthenticationHeader authenticationHeader = AuthenticationHeaderParser.Parse(actualAuthorization);
-
-            if (authenticationHeader == null)
-            {
-                return false;
-            }
-
-            string[] signedHeaders = authenticationHeader.SignedHeaders.Split(';');
-
-            RemoveUnsignedHeaders(request, signedHeaders);
-
-            DateTime dateOfRequest;
-            if (!DateTime.TryParseExact(dateTime, DateTimeFormat, null, DateTimeStyles.None, out dateOfRequest))
-            {
-                return false;
-            }
-
-            TimeSpan timeSpan = now - dateOfRequest;
-            if (Math.Abs(timeSpan.TotalMilliseconds) > TimeToleranceInMilliseconds)
+            if (!authenticationHeaderParser.TryParse(requestAuthorization,
+                    out var authenticationHeader))
             {
                 return false;
             }
 
             // The credential info should follow this pattern: KEYID/DATE
             string[] credentialInfo = authenticationHeader.Credential.Split('/');
-
-            if (credentialInfo.GetLength(0) < 2)
+            if (credentialInfo.Length < 2)
             {
                 return false;
             }
 
-            Credential credential;
-            try
-            {
-                credential = credentialStore.Get(credentialInfo[0]);
-            }
-            catch (CredentialNotFoundException)
+            if (!credentialStore.TryGetValue(credentialInfo[0], out var credential))
             {
                 return false;
             }
 
-            byte[] timedKey = Sign(strDate, credential.SecretKey);
-            string canonicalRequest = GetCanonicalRequest(request);
-            string stringToSign = GetStringToSign(AlgorithmHeader, dateTime, EmptyScope, canonicalRequest);
-            string signature = BitConverter.ToString(Sign(stringToSign, timedKey)).Replace("-", "").ToLower();
+            string signedHeaders = authenticationHeader.SignedHeaders;
+            string[] signedHeadersList = signedHeaders.Split(';');
 
-            string computedAuthorization = GetAuthorizatioinHeader(request, credential, strDate, signature);
-            return computedAuthorization.Equals(actualAuthorization);
+            if (!TryGetHeadersToSign(signedHeadersList, request.Headers, out var headersToSign))
+            {
+                return false;
+            }
+
+            string date = amznAuthDateTime.ToString(ISO8601Date);
+            string dateTime = amznAuthDateTime.ToString(ISO8601DateTime);
+
+            string canonicalHeaders = GetCanonicalHeaders(headersToSign);
+            string canonicalRequest = GetCanonicalRequest(
+                request.HttpMethod.ToUpperInvariant(),
+                request.Uri.AbsolutePath,
+                string.Empty,
+                canonicalHeaders,
+                signedHeaders,
+                HexEncodedHash(request.Body ?? ""));
+
+            string stringToSign = GetStringToSign(
+                AlgorithmHeader,
+                dateTime,
+                string.Empty,
+                HexEncodedHash(canonicalRequest));
+
+            byte[] timedKey = Sign(date, credential.SecretKey);
+            string signature = Sign(stringToSign, timedKey).HexEncode();
+
+            string computedAuthorization = GetAuthorizationHeader(signedHeaders, credential, date, signature);
+            return computedAuthorization.Equals(requestAuthorization);
         }
 
-        /// <summary>
-        /// Trims out any headers that were not signed from the request to allow easier calculation of the signature for
-        /// verification.
-        /// </summary>
-        /// <param name="request">
-        /// the request to remove headers from.
-        /// </param>
-        /// <param name="signedHeaders">
-        /// the headers that should remain.
-        /// </param>
-        private static void RemoveUnsignedHeaders(Request request, string[] signedHeaders)
+        private bool TryGetRequestDate(IDictionary<String, StringValues> headers, out DateTime dateOfRequest)
         {
-            var unsignedHeaders = request.GetHeaderNames()
-                .Where(header => !signedHeaders.Contains(header, StringComparer.OrdinalIgnoreCase)).ToList();
-            foreach (string header in unsignedHeaders)
+            DateTime now = clock.Now();
+            string strDate = now.ToString(ISO8601Date);
+
+            if (!headers.TryGetValue(XAmzDateHeader, out StringValues dateTimeStr) ||
+                string.IsNullOrEmpty(dateTimeStr))
             {
-                request.RemoveHeader(header);
+                dateOfRequest = default;
+                return false;
             }
+
+            if (!DateTime.TryParseExact(
+                    dateTimeStr.ToString(),
+                    ISO8601DateTime,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal,
+                    out dateOfRequest))
+            {
+                return false;
+            }
+
+            TimeSpan timeSpan = now - dateOfRequest;
+            return Math.Abs(timeSpan.TotalMilliseconds) <= TimeToleranceInMilliseconds;
+        }
+
+        private bool TryGetHeadersToSign(
+            string[] signedHeaders,
+            IDictionary<string, StringValues> headers,
+            out ICollection<KeyValuePair<string, StringValues>> headersToSign)
+        {
+            var result = new Dictionary<string, StringValues>(
+                signedHeaders.Length,
+                StringComparer.InvariantCultureIgnoreCase);
+
+            foreach (var header in signedHeaders)
+            {
+                if (!headers.TryGetValue(header, out var value))
+                {
+                    headersToSign = default;
+                    return false;
+                }
+                result.Add(header, value);
+            }
+            headersToSign = result;
+            return true;
         }
 
         /// <summary>
@@ -194,42 +220,59 @@ namespace Amazon.DTASDK.V2.Signature
         /// <param name="credential">
         /// the credential to use when signing.
         /// </param>
-        public void Sign(Request request, Credential credential)
+        public void Sign(IDTARequest request, Credential credential)
         {
-            DateTime now = Clock.Now();
-            string strDate = now.ToString(DateStampFormat);
-            string dateTime = now.ToString(DateTimeFormat);
+            DateTime now = clock.Now();
+            string date = now.ToString(ISO8601Date);
+            string dateTime = now.ToString(ISO8601DateTime);
 
-            request.SetHeader(XAmzDateHeader, dateTime);
+            request.Headers[XAmzDateHeader] = dateTime;
 
-            byte[] timedKey = Sign(strDate, credential.SecretKey);
+            var headersToSign = request.Headers.OrderBy(kv => kv.Key).ToArray();
 
-            // Remove the Authorization header from the request, since it could have been set if sign() was previously
-            // called on this request.
-            request.RemoveHeader(AuthorizationHeader);
+            string signedHeaders = GetSignedHeaders(headersToSign);
+            string canonicalHeaders = GetCanonicalHeaders(headersToSign);
 
-            string canonicalRequest = GetCanonicalRequest(request);
-            string stringToSign = GetStringToSign(AlgorithmHeader, dateTime, EmptyScope, canonicalRequest);
-            string signature = BitConverter.ToString(Sign(stringToSign, timedKey)).Replace("-", "").ToLower();
-            request.SetHeader("Authorization", GetAuthorizatioinHeader(request, credential, strDate, signature));
+            string canonicalRequest = GetCanonicalRequest(
+                request.HttpMethod.ToUpperInvariant(),
+                request.Uri.AbsolutePath,
+                string.Empty,
+                canonicalHeaders,
+                signedHeaders,
+                HexEncodedHash(request.Body ?? ""));
+
+            string authorizationString = GetStringToSign(
+                AlgorithmHeader,
+                dateTime,
+                string.Empty,
+                HexEncodedHash(canonicalRequest));
+
+            byte[] timedKey = Sign(date, credential.SecretKey);
+            string signature = Sign(authorizationString, timedKey).HexEncode();
+
+            request.Headers[AuthorizationHeader] = GetAuthorizationHeader(signedHeaders, credential, date, signature);
         }
 
-        private static string GetAuthorizatioinHeader(Request request, Credential credential, string strDate, string signature) =>
-            $"{AlgorithmHeader} {SignedHeadersString}{GetSignedHeadersString(request)}, " +
-            $"{CredentialsString}{credential.PublicKey}/{strDate}, {SignatureString}{signature}";
+        private static string GetAuthorizationHeader(
+            string signedHeaders,
+            Credential credential,
+            string date,
+            string signature) =>
+            $"{AlgorithmHeader} " +
+            $"{SignedHeadersString}{signedHeaders}, " +
+            $"{CredentialsString}{credential.PublicKey}/{date}, " +
+            $"{SignatureString}{signature}";
 
         /// <summary>
-        /// Calculates and returns the content hash of the request. Per AwsAuthV4, we don't sign the body, we sign the hash
-        /// of the body. This allows validation to be offloaded to other servers more easily.
+        /// Calculates the hash and returns a hex encoded string.
         /// </summary>
-        /// <param name="request">
+        /// <param name="str">
         /// the request to get the content from
         /// </param>
         /// <returns>
-        /// a String representing the hexidecimal hash of the body
+        /// a String representing the hexadecimal hash of the body
         /// </returns>
-        private static string GetContentHash(Request request) =>
-            BitConverter.ToString(Hash(request.Body ?? "")).Replace("-", "").ToLower();
+        private static string HexEncodedHash(string str) => Hash(str).HexEncode();
 
         /// <summary>
         /// Creates a SHA256 hash of the given string
@@ -242,73 +285,38 @@ namespace Amazon.DTASDK.V2.Signature
         /// </returns>
         private static byte[] Hash(string text)
         {
-            try
-            {
-                SHA256 sha = SHA256.Create();
-                return sha.ComputeHash(Encoding.Default.GetBytes(text));
-            }
-            catch (ArgumentNullException e)
-            {
-                throw new SigningException(e.Message, e);
-            }
-            catch (ObjectDisposedException e)
-            {
-                throw new SigningException(e.Message, e);
-            }
+            using (SHA256 sha = SHA256.Create())
+                return sha.ComputeHash(UTF8.GetBytes(text));
         }
 
         /// <summary>
         /// Returns a canonical string representation of the request headers
         /// </summary>
-        /// <param name="request">
-        /// to get the headers from.
+        /// <param name="headers">
+        /// The headers to construct the canonical string from
         /// </param>
         /// <returns>
         /// a string of the form header_name1:header_value1 \n header_name2:header_value2
         /// </returns>
-        private static string GetCanonicalizedHeaderString(Request request)
-        {
-            var headers = request.Headers.Select(header => $"{header.Key.Trim().ToLowerInvariant()}:{header.Value.Trim()}");
-            return string.Join("\n", headers) + "\n";
-        }
+        private static string GetCanonicalHeaders(IEnumerable<KeyValuePair<string, StringValues>> headers) =>
+            string.Concat(headers.Select(header =>
+            $"{NormalizeWhiteSpace(header.Key).ToLowerInvariant()}:" +
+            $"{NormalizeWhiteSpace(header.Value)}\n"));
+
+        private static string NormalizeWhiteSpace(string str) =>
+            Regex.Replace(str, @"\s+", " ");
 
         /// <summary>
         /// Returns a string with all the signed headers names found in the request separated by ';'.
         /// </summary>
-        /// <param name="request">
-        /// to get the headers from.
+        /// <param name="headers">
+        /// The headers to be signed.
         /// </param>
         /// <returns>
         /// a string of the form HEADER_NAME1;HEADER_NAME2;HEADER_NAME3 to sign
         /// </returns>
-        private static string GetSignedHeadersString(Request request) =>
-            string.Join(";", request.Headers.Keys.Select(s => s.ToLower()));
-
-        /// <summary>
-        /// Returns a canonical string representation of the resourcePath.
-        /// </summary>
-        /// <param name="resourcePath">
-        /// The path from which to create a canonical encoding
-        /// </param>
-        /// <returns>
-        /// The uri-converted path preceded by a '/', or a '/' alone if the path is empty.
-        /// </returns>
-        private static string GetCanonicalizedResourcePath(string resourcePath)
-        {
-            if (string.IsNullOrWhiteSpace(resourcePath))
-            {
-                return "/";
-            }
-
-            string value = Uri.EscapeUriString(resourcePath);
-
-            if (value.StartsWith("/"))
-            {
-                return value;
-            }
-
-            return "/" + value;
-        }
+        private static string GetSignedHeaders(IEnumerable<KeyValuePair<string, StringValues>> headers) =>
+            String.Join(';', headers.Select(kv => kv.Key.ToLowerInvariant()));
 
         /// <summary>
         /// Returns the canonical representation of the request. The canonical request is of the form:
@@ -333,30 +341,22 @@ namespace Amazon.DTASDK.V2.Signature
         /// CONTENT_HASH
         /// </pre>
         /// </summary>
-        /// <param name="request">
-        /// the request to canonicalize.
-        /// </param>
         /// <returns>
         /// the canonical request.
         /// </returns>
-        private static string GetCanonicalRequest(Request request)
-        {
-            /* This would url-encode the resource path for the first time */
-            Uri url;
-            try
-            {
-                url = new Uri(request.Url);
-            }
-            catch (UriFormatException murle)
-            {
-                throw new SigningException(murle.Message, murle);
-            }
-            string canonicalRequest =
-                $"{request.RequestMethod.ToString().ToUpperInvariant()}\n" +
-                $"{GetCanonicalizedResourcePath(url.AbsolutePath)}\n\n" +
-                $"{GetCanonicalizedHeaderString(request)}\n{GetSignedHeadersString(request)}\n{GetContentHash(request)}";
-            return canonicalRequest;
-        }
+        private static string GetCanonicalRequest(
+            string httpRequestMethod,
+            string canonicalURI,
+            string canonicalQueryString,
+            string canonicalHeaders,
+            string signedHeaders,
+            string hashEndcodedRequestPayload) =>
+            $"{httpRequestMethod}\n" +
+            $"{canonicalURI}\n" +
+            $"{canonicalQueryString}\n" +
+            $"{canonicalHeaders}\n" +
+            $"{signedHeaders}\n" +
+            $"{hashEndcodedRequestPayload}";
 
         /// <summary>
         /// Takes data parsed from the header of an authentication request and converts them into a string with which
@@ -369,16 +369,23 @@ namespace Amazon.DTASDK.V2.Signature
         /// The time at which the request was placed.
         /// </param>
         /// <param name="scope">
-        /// the scope of the request.
+        /// The scope of the request.
         /// </param>
-        /// <param name="canonicalRequest">
-        /// the canonical representation of the request.
+        /// <param name="canonicalRequestHash">
+        /// The hash of canonical representation of the request.
         /// </param>
         /// <returns>
         /// The string generated from all inputs.
         /// </returns>
-        private static string GetStringToSign(string algorithm, string dateTime, string scope, string canonicalRequest) =>
-            $"{algorithm}\n{dateTime}\n{scope}\n{BitConverter.ToString(Hash(canonicalRequest)).Replace("-", string.Empty).ToLower()}";
+        private static string GetStringToSign(
+            string algorithm,
+            string dateTime,
+            string scope,
+            string canonicalRequestHash) =>
+            $"{algorithm}\n" +
+            $"{dateTime}\n" +
+            $"{scope}\n" +
+            $"{canonicalRequestHash}";
 
         /// <summary>
         /// Creates a hashed signature from the string and private key provided.
@@ -393,7 +400,7 @@ namespace Amazon.DTASDK.V2.Signature
         /// the hashed signature
         /// </returns>
         private static byte[] Sign(string stringToSign, byte[] key) =>
-            Sign(Encoding.Default.GetBytes(stringToSign), key);
+            Sign(UTF8.GetBytes(stringToSign), key);
 
         /// <summary>
         /// Creates a hashed signature from the string and private key provided.
@@ -408,7 +415,7 @@ namespace Amazon.DTASDK.V2.Signature
         /// the hashed signature
         /// </returns>
         private static byte[] Sign(string data, string key) =>
-            Sign(Encoding.Default.GetBytes(data), Encoding.Default.GetBytes(key));
+            Sign(UTF8.GetBytes(data), UTF8.GetBytes(key));
 
         /// <summary>
         /// Creates a hashed signature from the string and private key provided.
@@ -424,15 +431,10 @@ namespace Amazon.DTASDK.V2.Signature
         /// </returns>
         private static byte[] Sign(byte[] dataBytes, byte[] keyBytes)
         {
-            try
+            using (HMAC mac = HMAC.Create(HmacAlgorithm))
             {
-                HMAC mac = HMAC.Create(HmacAlgorithm);
                 mac.Key = keyBytes;
                 return mac.ComputeHash(dataBytes);
-            }
-            catch (CryptographicException ike)
-            {
-                throw new SigningException(ike.Message, ike);
             }
         }
     }

@@ -1,4 +1,13 @@
-source https://www.nuget.org/api/v2
-nuget Microsoft.AspNet.WebApi 5.2.3 framework: >= net452
-nuget Microsoft.CodeDom.Providers.DotNetCompilerPlatform 1.0.1 framework: >= net452
-nuget Moq
+source https://nuget.org/api/v2
+
+nuget Microsoft.AspNetCore.App
+nuget Microsoft.Extensions.Primitives
+nuget Newtonsoft.Json
+
+group Test
+    source https://nuget.org/api/v2
+
+    nuget Microsoft.NET.Test.Sdk
+    nuget MSTest.TestAdapter
+    nuget MSTest.TestFramework
+    nuget Moq

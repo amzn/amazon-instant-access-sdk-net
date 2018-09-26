@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
@@ -20,7 +20,8 @@ namespace Amazon.DTASDK.V2.Signature
     /// <summary>
     /// A wrapper class for DateTime.Now to allow for mocking in unit tests.
     /// </summary>
-    public class Clock {
+    public class Clock
+    {
         public virtual DateTime Now() => DateTime.UtcNow;
     }
 }

@@ -29,6 +29,5 @@ bld/
 TestResult.xml
 
 # Paket dependency manager
-.paket/paket.exe
-
+paket-files/
 [Pp]ackages/

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 using System;
 using System.Threading.Tasks;
 using Amazon.DTASDK.V2;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace DTASDKWeb.Controllers
 {
@@ -27,7 +29,7 @@ namespace DTASDKWeb.Controllers
     /// </remarks>
     public abstract class PurchaseController : InstantAccessController
     {
-        protected override async Task<object> ProcessOperation(InstantAccessOperation operation, string content)
+        protected override async Task<object> ProcessOperation(InstantAccessOperation operation, JObject content)
         {
             switch (operation)
             {
@@ -73,7 +75,7 @@ namespace DTASDKWeb.Controllers
         /// <summary>
         /// Processes Fulfill Purchase requests.
         /// </summary>
-        /// <returns>A <see cref="Task{T}"/> of <see cref="FulfillPurchaseResposne"/> or an exception if bill once purchases are not supported.</returns>
+        /// <returns>A <see cref="Task{T}"/> of <see cref="FulfillPurchaseResponse"/> or an exception if bill once purchases are not supported.</returns>
         protected abstract Task<FulfillPurchaseResposne> ProcessFulfillPurchase(PurchaseRequest purchaseRequest);
 
         /// <summary>

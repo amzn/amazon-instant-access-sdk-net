@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
@@ -35,15 +35,26 @@ namespace Amazon.DTASDK.V2.Signature
         /// </returns>
         public AuthenticationHeader Parse(string headerString)
         {
+            TryParse(headerString, out AuthenticationHeader authentication);
+            return authentication;
+        }
+
+        public bool TryParse(string headerString, out AuthenticationHeader authentication)
+        {
             var match = Regex.Match(headerString, AuthenticationHeaderRegex);
-            if (!match.Success) return null;
-            return new AuthenticationHeader
+            if (match.Success)
             {
-                Algorithm = match.Groups[1].Value,
-                SignedHeaders = match.Groups[2].Value,
-                Credential = match.Groups[3].Value,
-                Signature = match.Groups[4].Value
-            };
+                authentication = new AuthenticationHeader
+                {
+                    Algorithm = match.Groups[1].Value,
+                    SignedHeaders = match.Groups[2].Value,
+                    Credential = match.Groups[3].Value,
+                    Signature = match.Groups[4].Value
+                };
+                return true;
+            }
+            authentication = null;
+            return false;
         }
     }
 }

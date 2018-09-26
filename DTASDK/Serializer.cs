@@ -15,6 +15,7 @@
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace Amazon.DTASDK.V2
@@ -30,16 +31,23 @@ namespace Amazon.DTASDK.V2
             Converters = { new StringEnumConverter() }
         };
 
-        public JsonSerializerSettings SerializerSettings { get; set; } = DefaultSerializerSettings;
-
-        public T Deserialize<T>(string json)
+        private JsonSerializerSettings serializerSettings = DefaultSerializerSettings;
+        private JsonSerializer serializer = JsonSerializer.Create(DefaultSerializerSettings);
+        public JsonSerializerSettings SerializerSettings
         {
-            return JsonConvert.DeserializeObject<T>(json, SerializerSettings);
+            get
+            {
+                return serializerSettings;
+            }
+            set
+            {
+                serializerSettings = value;
+                serializer = JsonSerializer.Create(serializerSettings);
+            }
         }
 
-        public string Serialize(object obj)
-        {
-            return JsonConvert.SerializeObject(obj);
-        }
+        public T Deserialize<T>(JObject json) =>
+            json.ToObject<T>(serializer);
+
     }
 }

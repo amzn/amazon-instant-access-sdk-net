@@ -92,14 +92,14 @@ namespace Amazon.DTASDK.V2.Tests
 
         private void assertCorrectCredentials(CredentialStore store)
         {
-            Assert.AreEqual(KEYS[0], store.Get(KEYS[1]).SecretKey);
-            Assert.AreEqual(KEYS[1], store.Get(KEYS[1]).PublicKey);
+            Assert.AreEqual(KEYS[0], store[KEYS[1]].SecretKey);
+            Assert.AreEqual(KEYS[1], store[KEYS[1]].PublicKey);
 
-            Assert.AreEqual(KEYS[2], store.Get(KEYS[3]).SecretKey);
-            Assert.AreEqual(KEYS[3], store.Get(KEYS[3]).PublicKey);
+            Assert.AreEqual(KEYS[2], store[KEYS[3]].SecretKey);
+            Assert.AreEqual(KEYS[3], store[KEYS[3]].PublicKey);
 
-            Assert.AreEqual(KEYS[4], store.Get(KEYS[5]).SecretKey);
-            Assert.AreEqual(KEYS[5], store.Get(KEYS[5]).PublicKey);
+            Assert.AreEqual(KEYS[4], store[KEYS[5]].SecretKey);
+            Assert.AreEqual(KEYS[5], store[KEYS[5]].PublicKey);
         }
 
         [TestMethod]
@@ -109,7 +109,7 @@ namespace Amazon.DTASDK.V2.Tests
             CredentialStore store = new CredentialStore();
             store.LoadFromStream(new FileStream(VALID_FILE, FileMode.Open));
 
-            store.Get(INVALID_KEY);
+            var cred = store[INVALID_KEY];
         }
 
         [TestMethod]

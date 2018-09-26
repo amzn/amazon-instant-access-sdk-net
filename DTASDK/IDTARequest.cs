@@ -1,5 +1,5 @@
-﻿/*
- * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+/*
+ * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -13,15 +13,22 @@
  * permissions and limitations under the License.
  */
 
-using System.Web.Http;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Primitives;
 
-namespace DTASDKWeb
-{
-    public class WebApiApplication : System.Web.HttpApplication
-    {
-        protected void Application_Start()
-        {
-            GlobalConfiguration.Configure(WebApiConfig.Register);
-        }
+namespace Amazon.DTASDK.V2 {
+    public interface IDTARequest {
+
+        string HttpMethod { get; }
+
+        Uri Uri { get; }
+
+        IDictionary<string, StringValues> Headers { get; }
+
+        string Body { get; }
+
     }
+
 }

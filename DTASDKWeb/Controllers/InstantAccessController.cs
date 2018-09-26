@@ -1,5 +1,5 @@
 ﻿/*
- * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -14,74 +14,98 @@
  */
 
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Net;
+using System.Text;
 using System.Threading.Tasks;
-using System.Web.Http;
-using System.Web.Http.Results;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.Extensions.Primitives;
 using Amazon.DTASDK.V2;
 using Amazon.DTASDK.V2.Signature;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace DTASDKWeb.Controllers
 {
     /// <summary>
-    /// Base class for Instant Access Controller. Verfies the signature is correct in the headers,
-    /// fowards the operation to the implementing controllers, and serializes the response.
+    /// Base class for Instant Access Controller. Verifies the signature is correct in the headers,
+    /// forwards the operation to the implementing controllers, and serializes the response.
     /// </summary>
-    public abstract class InstantAccessController : ApiController
+    [ApiController]
+    public abstract class InstantAccessController : Controller
     {
 
-        private readonly Signer _signer = new Signer();
+        private readonly Signer signer = new Signer();
 
-        protected abstract CredentialStore CredentialStore { get; }
+        protected CredentialStore CredentialStore { get; set; }
 
         protected Serializer Serializer { get; } = new Serializer();
 
-
         [HttpPost]
-        public async Task<IHttpActionResult> Post()
+        public async Task<ActionResult> Post()
         {
             try
             {
-                var content = await Request.Content.ReadAsStringAsync().ConfigureAwait(false);
-                var request = CreateIntantAccessRequest(content);
-
-                if (!_signer.Verify(request, CredentialStore))
+                string content;
+                using(var sr = new StreamReader(Request.Body))
                 {
-                    return new StatusCodeResult(HttpStatusCode.Forbidden, Request);
+                    content = await sr.ReadToEndAsync();
                 }
 
-                var operation = GetInstantAccessOperation(content);
-                var result = await ProcessOperation(operation, content).ConfigureAwait(false);
-                return Json(result, Serializer.SerializerSettings);
+                if (!signer.Verify(new DTARequest(Request, content), CredentialStore))
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden);
+                }
+
+                var jObject = JObject.Parse(content);
+                InstantAccessOperation operation = GetInstantAccessOperation(jObject["operation"].ToString());
+                var result = await ProcessOperation(operation, jObject).ConfigureAwait(false);
+                return new JsonResult(result, Serializer.SerializerSettings);
             }
-            catch (Exception ex)
+
+            catch (Exception)
             {
-                return InternalServerError(ex);
+                return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
 
-        protected abstract Task<object> ProcessOperation(InstantAccessOperation operation, string content);
+        private static InstantAccessOperation GetInstantAccessOperation(string operation) =>
+             (InstantAccessOperation)Enum.Parse(typeof(InstantAccessOperation), operation, true);
 
-        private Request CreateIntantAccessRequest(string content)
+        protected abstract Task<object> ProcessOperation(InstantAccessOperation operation, JObject content);
+
+        /// <summary>
+        /// An implentation of IDTARequest wrapping HttpRequest
+        /// </summary>
+        private class DTARequest : IDTARequest
         {
-            var request = new Request(Request.RequestUri.OriginalString, Amazon.DTASDK.V2.Request.Method.Post,
-                Request.Content.Headers.ContentType.MediaType);
-            foreach (var httpRequestHeader in Request.Headers)
+
+            private readonly HttpRequest httpRequest;
+            private readonly string content;
+
+            public DTARequest(HttpRequest httpRequest, string content)
             {
-                request.SetHeader(httpRequestHeader.Key, httpRequestHeader.Value.FirstOrDefault());
+                this.httpRequest = httpRequest;
+                this.content = content;
             }
-            request.Body = content;
-            return request;
-        }
 
-        private static InstantAccessOperation GetInstantAccessOperation(string content)
-        {
-            var jObject = JObject.Parse(content);
+            public string HttpMethod => httpRequest.Method;
 
-            return (InstantAccessOperation)
-                Enum.Parse(typeof(InstantAccessOperation), jObject["operation"].ToString(), true);
+            public Uri Uri
+            {
+                get =>
+                    new Uri(httpRequest.GetDisplayUrl());
+            }
+
+            public IDictionary<string, StringValues> Headers => httpRequest.Headers;
+
+            public void SetHeader(string key, string value) => httpRequest.Headers[key] = value;
+
+            public string Body => content;
         }
     }
 }

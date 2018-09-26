@@ -1,5 +1,5 @@
-﻿/*
- * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+/*
+ * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -14,12 +14,14 @@
  */
 
 using System;
-using System.IO;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace Amazon.DTASDK.V2.Signature
 {
+
     /// <summary>
     /// Class that is used to manage multiple credentials.
     ///
@@ -36,11 +38,11 @@ namespace Amazon.DTASDK.V2.Signature
     public class CredentialStore
     {
 
-        private Dictionary<string, Credential> Store { get; }
+        private Dictionary<string, Credential> store = new Dictionary<string, Credential>();
 
-        public CredentialStore()
+        public Credential this[string key]
         {
-            Store = new Dictionary<string, Credential>();
+            get => Get(key);
         }
 
         /// <summary>
@@ -54,21 +56,14 @@ namespace Amazon.DTASDK.V2.Signature
         /// </returns>
         public Credential Get(string publicKey)
         {
-            if (Store.ContainsKey(publicKey)) return Store[publicKey];
+            if (TryGetValue(publicKey, out Credential credential)) return credential;
             string message = "Credential not found for public key: " + publicKey;
             throw new CredentialNotFoundException(message);
         }
 
-        /// <summary>
-        /// Gets the credentials stored in this store.
-        /// </summary>
-        /// <returns>
-        /// a List with all the credentials
-        /// </returns>
-        public List<Credential> GetAll()
-        {
-            return Store.Values.ToList();
-        }
+        public bool TryGetValue(string publicKey, out Credential credential) =>
+            store.TryGetValue(publicKey, out credential);
+
 
         /// <summary>
         /// Adds the new credential to the store. If the store already contains the public key the credential is replaced.
@@ -78,7 +73,7 @@ namespace Amazon.DTASDK.V2.Signature
         /// </param>
         public void Add(Credential credential)
         {
-            Store.Add(credential.PublicKey, credential);
+            store.Add(credential.PublicKey, credential);
         }
 
         /// <summary>
@@ -89,7 +84,7 @@ namespace Amazon.DTASDK.V2.Signature
         /// </param>
         public void Remove(string publicKey)
         {
-            Store.Remove(publicKey);
+            store.Remove(publicKey);
         }
 
         /// <summary>
@@ -163,7 +158,7 @@ namespace Amazon.DTASDK.V2.Signature
                 string secretKey = keys[0];
                 string publicKey = keys[1];
 
-                Store.Add(publicKey, new Credential(secretKey, publicKey));
+                store.Add(publicKey, new Credential(secretKey, publicKey));
             }
         }
     }

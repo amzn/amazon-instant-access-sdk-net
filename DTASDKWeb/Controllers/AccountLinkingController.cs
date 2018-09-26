@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 using System;
 using System.Threading.Tasks;
 using Amazon.DTASDK.V2;
+using Newtonsoft.Json.Linq;
 
 namespace DTASDKWeb.Controllers
 {
@@ -23,11 +24,11 @@ namespace DTASDKWeb.Controllers
     /// AIA Acount Linking Controller.
     /// </summary>
     /// <remarks>
-    /// Implement a conrete version of this class with your account linking logic.
+    /// Implement a concrete version of this class with your account linking logic.
     /// </remarks>
     public abstract class AccountLinkingController : InstantAccessController
     {
-        protected override async Task<object> ProcessOperation(InstantAccessOperation operation, string content)
+        protected override async Task<object> ProcessOperation(InstantAccessOperation operation, JObject content)
         {
             if (operation != InstantAccessOperation.GetUserId)
                 throw new ArgumentException(

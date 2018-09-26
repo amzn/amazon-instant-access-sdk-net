@@ -1,1 +1,7 @@
-Moq
+Microsoft.Extensions.Primitives
+
+group Test
+    Microsoft.NET.Test.Sdk
+    MSTest.TestAdapter
+    MSTest.TestFramework
+    Moq
